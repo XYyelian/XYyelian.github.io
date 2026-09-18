@@ -471,13 +471,16 @@ function renderModuleFilters() {
   });
   
   // 为每个产品创建一个复选框组
+  let moduleIndex = 0;
   Object.entries(groupedModules).forEach(([productName, modules]) => {
     const groupDiv = document.createElement('div');
     groupDiv.className = 'checkbox-group';
     groupDiv.innerHTML = `<div class="checkbox-group-title">${productName}</div>`;
     
     modules.forEach(module => {
-      const checkboxId = `module-${module.url.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      // id 必须唯一：同一 url 目录下有多个模块（如 ASPD-110 下有 4 个），
+      // 若只用 url 生成 id 会重复，导致 <label for> 全部指向第一个复选框。
+      const checkboxId = `module-${(module.url + module.update + module.name).replace(/[^a-zA-Z0-9]/g, '-')}-${moduleIndex++}`;
       const checkbox = document.createElement('div');
       checkbox.className = 'checkbox-item';
       checkbox.innerHTML = `
