@@ -348,21 +348,31 @@
 <div id="toast" class="toast"></div>
 
 <script>
+// 模块图片缺失时的内联占位图（data URI，不产生网络请求）
+// 若已把产品图放到 index.html 同级的 src/ 目录，把对应项的 image 填回路径即可，如 "src/ASPD-110.png"
+const PLACEHOLDER_IMAGE = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60">' +
+  '<rect width="60" height="60" rx="8" fill="#e8eef5"/>' +
+  '<text x="30" y="35" font-size="14" text-anchor="middle" fill="#95a5a6" font-family="sans-serif">无图</text>' +
+  '</svg>'
+);
+
 // URL 列表和对应的产品名称
 // 说明：url 为“源站目录”（dl.cii-tech.com），实际请求由 PROXY_LIST 中的代理转发，
 //       源站是 http 且不支持 CORS，必须走 https 代理才能被浏览器读取。
+//       image 默认留空使用占位图，部署时放入真实产品图后填回路径。
 const urlMap = [
-  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_mcu_v21.json", name: "冰箱版-主控板", product: "污水", log:"修改记录_ASPD_110_MCU_V21.txt", image: "src/SAFS-110.png" },
-  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs_b.json", name: "冰箱版-安卓板", product: "污水", log:"修改记录_SAFS-110B_android.txt", image: "src/SAFS-110.png" },
-  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs.json", name: "冰箱版-监控APP", product: "污水", log:"修改记录_SAFS-110_android.txt", image: "src/SAFS-110.png" },
-  { url: "http://dl.cii-tech.com/Update/SAS-210/", update: "update.json", name: "单瓶板-主控板", product: "污水", log:"修改记录.txt", image: "src/SAS-210.png" },
-  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update.json", name: "污水APP", product: "污水", log:"修改记录_ASPD_110_MCU.txt", image: "src/ASPD-110.png" },
-  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update.json", name: "Craiv210Y-安卓板", product: "一体机", log:"修改记录_CRAIV-210Y_android.txt", image: "src/Craiv-210Y.png" },
-  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_mcu_v21.json", name: "Craiv210Y-主控板", product: "一体机", log:"修改记录_CRAIV_210Y_Main_V21.txt", image: "src/Craiv-210Y.png" },
-  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_signal.json", name: "Craiv210Y-信号板", product: "一体机", log:"修改记录_CRAIV_210Y_Signal.txt", image: "src/Craiv-210Y.png" },
-  { url: "http://dl.cii-tech.com/Update/CRAIV-110Y/", update: "update.json", name: "Craiv110Y-安卓板", product: "一体机", log:"修改记录_CRAIV-110Y_android.txt", image: "src/Craiv-110Y.png" },
-  { url: "http://dl.cii-tech.com/Update/CRA-110/", update: "update.json", name: "掌上扫毒", product: "掌上扫毒", log:"修改记录_CRA-110_android.txt", image: "src/CRA-110.png" },
-  { url: "http://dl.cii-tech.com/Update/HIA-100/", update: "update.json", name: "手持荧光", product: "手持荧光", log:"修改记录.txt", image: "src/HIA-100.png"}
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_mcu_v21.json", name: "冰箱版-主控板", product: "污水", log:"修改记录_ASPD_110_MCU_V21.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs_b.json", name: "冰箱版-安卓板", product: "污水", log:"修改记录_SAFS-110B_android.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs.json", name: "冰箱版-监控APP", product: "污水", log:"修改记录_SAFS-110_android.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/SAS-210/", update: "update.json", name: "单瓶板-主控板", product: "污水", log:"修改记录.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update.json", name: "污水APP", product: "污水", log:"修改记录_ASPD_110_MCU.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update.json", name: "Craiv210Y-安卓板", product: "一体机", log:"修改记录_CRAIV-210Y_android.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_mcu_v21.json", name: "Craiv210Y-主控板", product: "一体机", log:"修改记录_CRAIV_210Y_Main_V21.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_signal.json", name: "Craiv210Y-信号板", product: "一体机", log:"修改记录_CRAIV_210Y_Signal.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-110Y/", update: "update.json", name: "Craiv110Y-安卓板", product: "一体机", log:"修改记录_CRAIV-110Y_android.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/CRA-110/", update: "update.json", name: "掌上扫毒", product: "掌上扫毒", log:"修改记录_CRA-110_android.txt", image: "" },
+  { url: "http://dl.cii-tech.com/Update/HIA-100/", update: "update.json", name: "手持荧光", product: "手持荧光", log:"修改记录.txt", image: ""}
 ];
 
 // 公共 CORS 代理（按优先级依次尝试，前一个失败自动切换下一个）
@@ -679,7 +689,7 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image) {
 
   moduleCard.innerHTML = `
     <div class="module-header">
-      <img src="${image}" alt="${name}" class="module-image" onerror="this.style.display='none';">
+      <img src="${image || PLACEHOLDER_IMAGE}" alt="${name}" class="module-image" onerror="this.src='${PLACEHOLDER_IMAGE}';">
       <h3 class="module-title">${name}</h3>
     </div>
     <div class="info">
@@ -722,7 +732,7 @@ function createErrorModuleCard(url, name, errorMsg, image) {
   moduleCard.className = "module-card error-module";
   moduleCard.innerHTML = `
     <div class="module-header">
-      <img src="${image || 'src/default.png'}" alt="${name}" class="module-image" onerror="this.style.display='none';">
+      <img src="${image || PLACEHOLDER_IMAGE}" alt="${name}" class="module-image" onerror="this.src='${PLACEHOLDER_IMAGE}';">
       <h3 class="module-title" style="color:#e74c3c;">❌ ${name}</h3>
     </div>
     <div class="error"><strong>错误信息:</strong> ${errorMsg}</div>
