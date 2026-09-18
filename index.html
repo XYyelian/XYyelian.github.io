@@ -292,6 +292,20 @@
       border-bottom: 1px solid #eee;
       padding-bottom: 10px;
     }
+
+    /* 下载提示气泡 */
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      background-color: rgba(44,62,80,0.92);
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 0.9em;
+      z-index: 2000;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -331,21 +345,92 @@
   © 2025 yozad.von | 个人所有 · 仅供展示
 </footer>
 
+<div id="toast" class="toast"></div>
+
 <script>
 // URL 列表和对应的产品名称
+// 说明：url 为“源站目录”（dl.cii-tech.com），实际请求由 PROXY_LIST 中的代理转发，
+//       源站是 http 且不支持 CORS，必须走 https 代理才能被浏览器读取。
 const urlMap = [
-  { url: "https://lithtml.com/Update/ASPD-110/", update: "update_mcu_v21.json", name: "冰箱版-主控板", product: "污水", log:"修改记录_ASPD_110_MCU_V21.txt", rawUrl:"http://dl.cii-tech.com/Update/ASPD-110/update_mcu_v21.json", image: "src/SAFS-110.png" },
-  { url: "https://lithtml.com/Update/ASPD-110/", update: "update_safs_b.json", name: "冰箱版-安卓板", product: "污水", log:"修改记录_SAFS-110B_android.txt", rawUrl:"http://dl.cii-tech.com/Update/ASPD-110/update_safs_b.json", image: "src/SAFS-110.png" },
-  { url: "https://lithtml.com/Update/ASPD-110/", update: "update_safs.json", name: "冰箱版-监控APP", product: "污水", log:"修改记录_SAFS-110_android.txt", rawUrl:"http://dl.cii-tech.com/Update/ASPD-110/update_safs.json", image: "src/SAFS-110.png" },
-  { url: "https://lithtml.com/Update/SAS-210/", update: "update.json", name: "单瓶板-主控板", product: "污水", log:"修改记录.txt", rawUrl:"http://dl.cii-tech.com/Update/SAS-210/update.json", image: "src/SAS-210.png" },
-  { url: "https://lithtml.com/Update/ASPD-110/", update: "update.json", name: "污水APP", product: "污水", log:"修改记录_ASPD_110_MCU.txt", rawUrl:"http://dl.cii-tech.com/Update/ASPD-110/update.json", image: "src/ASPD-110.png" },
-  { url: "https://lithtml.com/Update/CRAIV-210Y/", update: "update.json", name: "Craiv210Y-安卓板", product: "一体机", log:"修改记录_CRAIV-210Y_android.txt", rawUrl:"http://dl.cii-tech.com/Update/CRAIV-210Y/update.json", image: "src/Craiv-210Y.png" },
-  { url: "https://lithtml.com/Update/CRAIV-210Y/", update: "update_mcu_v21.json", name: "Craiv210Y-主控板", product: "一体机", log:"修改记录_CRAIV_210Y_Main_V21.txt", rawUrl:"http://dl.cii-tech.com/Update/CRAIV-210Y/update_mcu_v21.json", image: "src/Craiv-210Y.png" },
-  { url: "https://lithtml.com/Update/CRAIV-210Y/", update: "update_signal.json", name: "Craiv210Y-信号板", product: "一体机", log:"修改记录_CRAIV_210Y_Signal.txt", rawUrl:"http://dl.cii-tech.com/Update/CRAIV-210Y/update_signal.json", image: "src/Craiv-210Y.png" },
-  { url: "https://lithtml.com/Update/CRAIV-110Y/", update: "update.json", name: "Craiv110Y-安卓板", product: "一体机", log:"修改记录_CRAIV-110Y_android.txt", rawUrl:"http://dl.cii-tech.com/Update/CRAIV-110Y/update.json", image: "src/Craiv-110Y.png" },
-  { url: "https://lithtml.com/Update/CRA-110/", update: "update.json", name: "掌上扫毒", product: "掌上扫毒", log:"修改记录_CRA-110_android.txt", rawUrl:"http://dl.cii-tech.com/Update/CRA-110/update.json", image: "src/CRA-110.png" },
-  { url: "https://lithtml.com/Update/HIA-100/", update: "update.json", name: "手持荧光", product: "手持荧光", log:"修改记录.txt", rawUrl:"http://dl.cii-tech.com/Update/HIA-100/update.json", image: "src/HIA-100.png"}
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_mcu_v21.json", name: "冰箱版-主控板", product: "污水", log:"修改记录_ASPD_110_MCU_V21.txt", image: "src/SAFS-110.png" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs_b.json", name: "冰箱版-安卓板", product: "污水", log:"修改记录_SAFS-110B_android.txt", image: "src/SAFS-110.png" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs.json", name: "冰箱版-监控APP", product: "污水", log:"修改记录_SAFS-110_android.txt", image: "src/SAFS-110.png" },
+  { url: "http://dl.cii-tech.com/Update/SAS-210/", update: "update.json", name: "单瓶板-主控板", product: "污水", log:"修改记录.txt", image: "src/SAS-210.png" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update.json", name: "污水APP", product: "污水", log:"修改记录_ASPD_110_MCU.txt", image: "src/ASPD-110.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update.json", name: "Craiv210Y-安卓板", product: "一体机", log:"修改记录_CRAIV-210Y_android.txt", image: "src/Craiv-210Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_mcu_v21.json", name: "Craiv210Y-主控板", product: "一体机", log:"修改记录_CRAIV_210Y_Main_V21.txt", image: "src/Craiv-210Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_signal.json", name: "Craiv210Y-信号板", product: "一体机", log:"修改记录_CRAIV_210Y_Signal.txt", image: "src/Craiv-210Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-110Y/", update: "update.json", name: "Craiv110Y-安卓板", product: "一体机", log:"修改记录_CRAIV-110Y_android.txt", image: "src/Craiv-110Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRA-110/", update: "update.json", name: "掌上扫毒", product: "掌上扫毒", log:"修改记录_CRA-110_android.txt", image: "src/CRA-110.png" },
+  { url: "http://dl.cii-tech.com/Update/HIA-100/", update: "update.json", name: "手持荧光", product: "手持荧光", log:"修改记录.txt", image: "src/HIA-100.png"}
 ];
+
+// 公共 CORS 代理（按优先级依次尝试，前一个失败自动切换下一个）
+// 注意：Corsfix 要求请求必须带 Origin 头，因此页面需要通过 http(s) 访问，不能用 file:// 直接打开。
+// 如需长期使用或下载大体积固件包，建议自建代理（Cloudflare Workers / Nginx），
+// 只需在下面数组中再加一条 build 规则并放在第一位即可，其余代码无需改动。
+const PROXY_LIST = [
+  {
+    name: "Corsfix",
+    build: raw => `https://proxy.corsfix.com/?${raw}`
+  },
+  {
+    name: "AllOrigins",
+    build: raw => `https://api.allorigins.win/raw?url=${encodeURIComponent(raw)}&_t=${Date.now()}`
+  },
+  {
+    name: "Codetabs",
+    build: raw => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(raw)}`
+  }
+];
+const PROXY_TIMEOUT_MS = 15000;    // 读取 JSON / 日志等小文件
+const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，公共代理较慢，放宽超时
+const REQUEST_GAP_MS = 300;        // 请求间隔，避免并发触发公共代理限流
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// 串行请求队列：同一时刻只发一个代理请求
+let requestChain = Promise.resolve();
+function enqueue(task) {
+  const result = requestChain.then(() => delay(REQUEST_GAP_MS)).then(task);
+  requestChain = result.catch(() => {}); // 单个请求失败不阻塞后续
+  return result;
+}
+
+// 通过代理获取源站资源，返回 ArrayBuffer（失败自动切换下一个代理）
+async function fetchThroughProxy(rawUrl, timeoutMs = PROXY_TIMEOUT_MS) {
+  return enqueue(async () => {
+    let lastError = new Error("没有可用的代理服务");
+
+    for (const proxy of PROXY_LIST) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(proxy.build(rawUrl), { cache: "no-store", signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        }
+        const buffer = await response.arrayBuffer();
+        if (!buffer || buffer.byteLength === 0) {
+          throw new Error("返回内容为空");
+        }
+        return buffer;
+      } catch (err) {
+        lastError = new Error(`[${proxy.name}] ${err.message}`);
+        console.warn(`代理 ${proxy.name} 请求失败：${err.message}，URL: ${rawUrl}`);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    throw lastError;
+  });
+}
+
+// UTF-8 解码（兼容 BOM）
+function decodeUtf8(buffer) {
+  return new TextDecoder("utf-8").decode(buffer).replace(/^\uFEFF/, "").trim();
+}
 
 const resultsContainer = document.getElementById("results");
 const moduleFiltersContainer = document.getElementById("moduleFilters");
@@ -412,7 +497,8 @@ function saveSelectedModules() {
 function loadSelectedModules() {
   const saved = localStorage.getItem('selectedModules');
   if (saved) {
-    return JSON.parse(saved);
+    // 兼容历史版本：旧数据用的是已失效的 lithtml.com 前缀，迁移到源站地址
+    return JSON.parse(saved).map(v => String(v).replace('https://lithtml.com/', 'http://dl.cii-tech.com/'));
   }
   // 默认全选（所有URL）
   return urlMap.map(item => item.url + item.update);
@@ -430,40 +516,59 @@ function buildDownloadUrl(basePath, fileName) {
   return baseUrl + fileName;
 }
 
-// 下载文件函数
-function downloadFile(url, filename) {
+// 简易提示（下载大文件时公共代理较慢，给用户反馈）
+let toastTimer = null;
+function showToast(message, duration = 0) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.style.display = "block";
+  clearTimeout(toastTimer);
+  if (duration > 0) {
+    toastTimer = setTimeout(() => { toast.style.display = "none"; }, duration);
+  }
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  document.getElementById("toast").style.display = "none";
+}
+
+// 触发浏览器保存文件
+function saveBlob(buffer, filename) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([buffer]));
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href); // 释放内存
+}
+
+// 下载文件函数（url 为源站地址，实际通过代理获取）
+async function downloadFile(url, filename) {
+  const name = filename || url.substring(url.lastIndexOf('/') + 1);
+
   // 如果是同源，可以直接用 a[download]
   if (new URL(url).origin === window.location.origin) {
     const link = document.createElement('a');
     link.href = url;
-    link.download = filename || url.substring(url.lastIndexOf('/') + 1);
+    link.download = name;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     return;
   }
 
-  // 跨域情况：必须通过 fetch + Blob 方式
-  fetch(url, { cache: "no-store" })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`下载失败: ${response.status} ${response.statusText}`);
-      }
-      return response.blob();
-    })
-    .then(blob => {
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename || url.substring(url.lastIndexOf('/') + 1);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href); // 释放内存
-    })
-    .catch(err => {
-      alert(`下载失败：${err.message}\n\nURL: ${url}`);
-      console.error('Download error:', err);
-    });
+  // 跨域情况：通过代理 fetch + Blob 方式
+  showToast(`正在通过代理下载 ${name} ...`);
+  try {
+    const buffer = await fetchThroughProxy(url, PROXY_DOWNLOAD_TIMEOUT_MS);
+    saveBlob(buffer, name);
+    showToast(`${name} 下载完成`, 3000);
+  } catch (err) {
+    hideToast();
+    alert(`下载失败：${err.message}\n\nURL: ${url}`);
+    console.error('Download error:', err);
+  }
 }
 
 // 点击历史版本下载文件
@@ -480,21 +585,14 @@ function showUpdateLog(basePath, logFile, moduleName) {
 
   const logUrl = buildDownloadUrl(basePath, logFile);
 
-  fetch(logUrl, { cache: "no-store" })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`服务器错误: ${response.status}`);
-      }
-      return response.arrayBuffer(); // 获取原始二进制数据
-    })
+  fetchThroughProxy(logUrl)
     .then(arrayBuffer => {
       // 使用 TextDecoder 指定编码为 'gbk'（兼容 GB2312）
       const decoder = new TextDecoder('gbk', { fatal: false });
-      const text = decoder.decode(arrayBuffer);
-      logContent.textContent = text;
+      logContent.textContent = decoder.decode(arrayBuffer);
     })
     .catch(error => {
-      logContent.textContent = `加载更新日志失败: ${error.message}`;
+      logContent.textContent = `加载更新日志失败: ${error.message}\n\nURL: ${logUrl}`;
     });
 }
 
@@ -536,18 +634,15 @@ async function loadAllVersions() {
       for (const item of items) {
         const fullUrl = item.url + item.update;
         try {
-          const response = await fetch(fullUrl, { cache: "no-store" });
-          if (!response.ok) {
-            throw new Error(`服务器错误: ${response.status}`);
-          }
-          const data = await response.json();
+          const buffer = await fetchThroughProxy(fullUrl);
+          const data = JSON.parse(decodeUtf8(buffer));
           
           // 保存数据到全局对象
           results[fullUrl] = data;
           
-          modulesContainer.appendChild(createModuleCard(data, item.url, item.name, item.log, item.rawUrl, item.image));
+          modulesContainer.appendChild(createModuleCard(data, item.url, item.name, item.log, fullUrl, item.image));
         } catch (err) {
-          modulesContainer.appendChild(createErrorModuleCard(fullUrl, item.name, err.message));
+          modulesContainer.appendChild(createErrorModuleCard(fullUrl, item.name, err.message, item.image));
         }
       }
       
@@ -622,7 +717,7 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image) {
   return moduleCard;
 }
 
-function createErrorModuleCard(url, name, errorMsg) {
+function createErrorModuleCard(url, name, errorMsg, image) {
   const moduleCard = document.createElement("div");
   moduleCard.className = "module-card error-module";
   moduleCard.innerHTML = `
@@ -670,6 +765,10 @@ window.addEventListener('click', (event) => {
 
 // 页面加载完成后初始化
 window.onload = () => {
+  // file:// 打开时浏览器不发 Origin 头，公共代理会拒绝请求
+  if (location.protocol === 'file:') {
+    showToast('请通过 http(s) 服务器访问本页（file:// 打开时代理会拒绝请求）', 8000);
+  }
   renderModuleFilters();
   loadAllVersions().catch(console.error);
 };
