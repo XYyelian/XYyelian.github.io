@@ -101,6 +101,19 @@
     .download-btn:hover {
       background-color: #27ae60;
     }
+    .direct-btn {
+      font-size: 0.8em;
+      padding: 4px 10px;
+      background-color: #95a5a6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 6px;
+    }
+    .direct-btn:hover {
+      background-color: #7f8c8d;
+    }
     .view-log-btn {
       background-color: #f39c12;
       padding: 4px 12px;
@@ -436,7 +449,6 @@ function formatTime(ts) {
 }
 
 const PROXY_TIMEOUT_MS = 8000;     // 读取 JSON / 日志等小文件
-const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，走代理也走这个长超时
 const MAX_CONCURRENCY = 4;         // 同时发起的代理请求数
 
 // 并发执行任务，最多 limit 个同时进行（替代原来的串行队列）
@@ -590,19 +602,13 @@ function showToast(message, duration = 0) {
     toastTimer = setTimeout(() => { toast.style.display = "none"; }, duration);
   }
 }
-// 触发浏览器保存文件
-function saveBlob(buffer, filename) {
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([buffer]));
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(link.href); // 释放内存
-}
-
 // 下载文件函数（url 为源站地址）
-async function downloadFile(url, filename) {
+// 跨域下载不走 JS fetch，而是把「代理 URL」交给浏览器原生下载器：
+//   1) 浏览器流式保存到磁盘，整个文件不进 JS 内存，不会因超时失败
+//   2) 有下载进度条、可暂停/续传
+//   3) 代理返回 Content-Disposition: attachment，浏览器按附件保存
+//   （https 页面直接点 http 直链会被 mixed-content 拦截，所以必须经 https 代理）
+function downloadFile(url, filename) {
   const name = filename || url.substring(url.lastIndexOf('/') + 1);
 
   // 同源：直接 a[download]
@@ -616,22 +622,39 @@ async function downloadFile(url, filename) {
     return;
   }
 
-  // 跨域一律走代理：https 页面跳 http 直链会被浏览器按"混合内容下载"拦截，
-  // 即使点开了也只在地址栏给个提示，不会真下载。
-  // 大文件（固件包）放宽超时；小文件（json / 日志）维持 8s。
-  const isBig = /\.(bin|zip|rar|7z|apk|img|hex|tar|gz|bz2|exe|msi|pdf)$/i.test(name);
-  const timeoutMs = isBig ? PROXY_DOWNLOAD_TIMEOUT_MS : PROXY_TIMEOUT_MS;
-  showToast(`正在通过代理下载 ${name} ...`);
-  try {
-    const buffer = await fetchThroughProxy(url, timeoutMs);
-    saveBlob(buffer, name);
-    showToast(`${name} 下载完成`, 3000);
-  } catch (err) {
-    clearTimeout(toastTimer);
-    document.getElementById("toast").style.display = "none";
-    alert(`下载失败：${err.message}\n\nURL: ${url}`);
-    console.error('Download error:', err);
-  }
+  const link = document.createElement('a');
+  link.href = pickDownloadProxy(url);
+  link.download = name; // 同源时生效；跨域时由代理的 Content-Disposition 决定文件名
+  link.rel = "noopener";
+  link.target = "_self"; // 不新开窗口：响应是 attachment，浏览器会在当前页发起下载
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast(`已开始下载 ${name}（浏览器下载条可见进度）`, 4000);
+}
+
+// 用「原始链接」在新窗口触发下载（不一定可用）
+// Chrome 91+ 会把它按"混合内容下载"拦截：地址栏弹"不安全下载已拦截"图标，
+// 必须手动点"保留"才会真正保存，且每次新会话都要重做一遍，不会被浏览器记住。
+// 所以这个按钮是「代理下载」的备选：能直连就用，被拦了就回来用代理下载。
+function downloadDirect(url, name) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast(`已发起直链下载 ${name}（如浏览器未响应，说明被 mixed-content 拦截）`, 4000);
+}
+
+// 为「原生下载」挑一个代理地址：Vercel 同源优先，其次 Vercel 绝对地址，最后 CF Worker
+function pickDownloadProxy(rawUrl) {
+  const built = PROXY_LIST.map(p => p.build(rawUrl));
+  const sameOrigin = built.find(u => u.startsWith("/"));
+  // /api/proxy 只在 Vercel 部署下存在；GitHub Pages 上没有，会 404
+  if (sameOrigin && !/\.github\.io$/i.test(location.hostname)) return sameOrigin;
+  return built.find(u => u.startsWith("https://")) || rawUrl;
 }
 
 // 显示更新日志对话框
@@ -848,12 +871,14 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime
       </div>
 	  <div class="info-item">
 		<span class="label">最新版:</span>
-        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="点击下载最新版">下载</button>
+        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="通过代理下载（推荐，稳定）">下载</button>
+        <button class="direct-btn" onclick="downloadDirect('${latestDownloadUrl}', '${data.latest}')" title="用原始链接在新窗口下载（可能被浏览器拦截）">直链</button>
       </div>
 	  <div class="info-item">
 		<span class="label">更新日志:</span>
         <button class="view-log-btn" onclick="showUpdateLog('${baseUrl}', '${logFile}', '${name}')"  title="点击查看更新日志">查看</button>
 		<button class="download-btn" style="margin-left:6px;" onclick="downloadFile('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="下载更新日志">下载</button>
+        <button class="direct-btn" onclick="downloadDirect('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="用原始链接在新窗口下载（可能被浏览器拦截）">直链</button>
       </div>
     </div>
     ${historyList}
