@@ -223,6 +223,11 @@
       color: #95a5a6;
       font-size: 0.8em;
     }
+    .cache-badge.refreshing {
+      color: #1d6fa5;
+      background-color: #eaf4fb;
+      border-color: #b8dcf2;
+    }
     .cache-badge {
       margin: 0 0 10px;
       padding: 6px 10px;
@@ -367,7 +372,7 @@ const PLACEHOLDER_IMAGE = "data:image/svg+xml;charset=utf-8," + encodeURICompone
 );
 
 // URL 列表和对应的产品名称
-// 说明：url 为“源站目录”（dl.cii-tech.com），实际请求由  中的代理转发，
+// 说明：url 为“源站目录”（dl.cii-tech.com），实际请求由 PROXY_LIST 中的代理转发，
 //       源站是 http 且不支持 CORS，必须走 https 代理才能被浏览器读取。
 //       image 为相对路径（与 index.html 同级的 src 目录），留空则使用占位图。
 const urlMap = [
@@ -389,6 +394,10 @@ const urlMap = [
 // 它不可用时才会依次降级到下面的公共代理。
 // 注意：多数公共代理要求请求带 Origin 头，因此页面需通过 http(s) 访问，不能用 file:// 直接打开。
 const PROXY_LIST = [
+  {
+    name: "Vercel",
+    build: raw => `https://xyyeliangithubio.vercel.app/api/proxy?url=${encodeURIComponent(raw)}`
+  },
   {
     name: "Cloudflare Worker",
     build: raw => `https://cii-proxy.649099309.workers.dev/?url=${encodeURIComponent(raw)}`
@@ -422,48 +431,65 @@ function formatTime(ts) {
 
 // 这类文件直接用直链下载：跨域点击链接属于浏览器导航行为，不受 CORS 限制，也无需代理
 const DIRECT_DOWNLOAD_EXT = /\.(bin|zip|rar|7z|apk|img|hex|tar|gz|bz2|exe|msi|pdf)$/i;
-const PROXY_TIMEOUT_MS = 15000;    // 读取 JSON / 日志等小文件
+const PROXY_TIMEOUT_MS = 8000;     // 读取 JSON / 日志等小文件（原 15s，挂掉的代理等太久）
 const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，公共代理较慢，放宽超时
-const REQUEST_GAP_MS = 300;        // 请求间隔，避免并发触发公共代理限流
+const MAX_CONCURRENCY = 4;         // 同时发起的代理请求数（原来是串行，11 个模块要排队）
 
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-// 串行请求队列：同一时刻只发一个代理请求
-let requestChain = Promise.resolve();
-function enqueue(task) {
-  const result = requestChain.then(() => delay(REQUEST_GAP_MS)).then(task);
-  requestChain = result.catch(() => {}); // 单个请求失败不阻塞后续
-  return result;
-}
-
-// 通过代理获取源站资源，返回 ArrayBuffer（失败自动切换下一个代理）
-async function fetchThroughProxy(rawUrl, timeoutMs = PROXY_TIMEOUT_MS) {
-  return enqueue(async () => {
-    let lastError = new Error("没有可用的代理服务");
-
-    for (const proxy of PROXY_LIST) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+// 并发执行任务，最多 limit 个同时进行（替代原来的串行队列）
+async function runWithConcurrency(tasks, limit) {
+  const output = new Array(tasks.length);
+  let index = 0;
+  async function worker() {
+    while (index < tasks.length) {
+      const i = index++;
       try {
-        const response = await fetch(proxy.build(rawUrl), { cache: "no-store", signal: controller.signal });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        }
-        const buffer = await response.arrayBuffer();
-        if (!buffer || buffer.byteLength === 0) {
-          throw new Error("返回内容为空");
-        }
-        return buffer;
+        output[i] = await tasks[i]();
       } catch (err) {
-        lastError = new Error(`[${proxy.name}] ${err.message}`);
-        console.warn(`代理 ${proxy.name} 请求失败：${err.message}，URL: ${rawUrl}`);
-      } finally {
-        clearTimeout(timer);
+        output[i] = { ok: false, err };
       }
     }
+  }
+  const size = Math.max(1, Math.min(limit, tasks.length));
+  await Promise.all(Array.from({ length: size }, worker));
+  return output;
+}
 
-    throw lastError;
-  });
+// 通过代理获取源站资源（Race 模式）：
+// 同时向 PROXY_LIST 里所有代理发请求，谁先成功就用谁的结果，其余请求立即取消。
+// 整体最长 timeoutMs 仍未返回则算"全挂"，抛错让上层降级到本地缓存。
+async function fetchThroughProxy(rawUrl, timeoutMs = PROXY_TIMEOUT_MS) {
+  const ctl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, timeoutMs);
+
+  // 单条代理请求：fetch 阶段挂 ctl.signal（用于超时/被取消时中断）；
+  // body 读取在 fetch resolve 之后进行，已不与 signal 关联，安全读完。
+  async function raceOne(proxy) {
+    const start = Date.now();
+    const response = await fetch(proxy.build(rawUrl), { cache: "no-store", signal: ctl.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    const buffer = await response.arrayBuffer();
+    if (!buffer || buffer.byteLength === 0) throw new Error("返回内容为空");
+    console.log(`[代理] ${proxy.name} 成功，用时 ${Date.now() - start}ms`);
+    return buffer;
+  }
+
+  try {
+    // 外层包装：赢家一拿到结果就立即 abort 掉其他 in-flight 的请求，节省 socket
+    const racers = PROXY_LIST.map(p => (async () => {
+      const buf = await raceOne(p);
+      ctl.abort();
+      return buf;
+    })());
+    return await Promise.any(racers);
+  } catch (err) {
+    if (timedOut) {
+      throw new Error(`所有代理均超时（>${Math.round(timeoutMs / 1000)}s）`);
+    }
+    throw new Error("所有代理均失败");
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // UTF-8 解码（兼容 BOM）
@@ -681,49 +707,79 @@ async function loadAllVersions() {
   // 清空结果容器
   resultsContainer.innerHTML = "";
 
+  // Stale-While-Revalidate：
+  // 先用本地缓存把卡片立刻渲染出来（首屏秒开），再并发去拉最新数据，拉到后原地替换。
+  const tasks = [];
+
   try {
     // 为每个有选中模块的产品创建卡片
     for (const [productName, items] of Object.entries(productData)) {
       if (items.length === 0) continue; // 跳过没有选中模块的产品
-      
+
       const productCard = document.createElement("div");
       productCard.className = "product-card";
       productCard.innerHTML = `<h2>${productName}</h2>`;
-      
+
       const modulesContainer = document.createElement("div");
-      
-      // 为每个选中的模块加载数据
+
       for (const item of items) {
         const fullUrl = item.url + item.update;
-        let data = null;
-        let cacheTime = 0; // >0 表示当前展示的是缓存数据
+        const domId = moduleDomId(fullUrl);
 
-        try {
-          const buffer = await fetchThroughProxy(fullUrl);
-          const text = decodeUtf8(buffer);
-          cacheWrite(fullUrl, text); // 成功即写入本地缓存，供下次代理全挂时兜底
-          data = JSON.parse(text);
-        } catch (err) {
-          const hit = cacheRead(fullUrl);
-          if (hit) {
-            try {
-              data = JSON.parse(hit.text);
-              cacheTime = hit.time;
-            } catch (e) { /* 缓存内容损坏则按失败处理 */ }
-          }
-          if (!data) {
-            modulesContainer.appendChild(createErrorModuleCard(fullUrl, item.name, err.message, item.image));
-            continue;
-          }
+        // 1) 首屏：有缓存就直接用缓存渲染，没有就显示"加载中"
+        const cached = cacheRead(fullUrl);
+        let card = null;
+        if (cached) {
+          try {
+            const cachedData = JSON.parse(cached.text);
+            results[fullUrl] = cachedData;
+            card = createModuleCard(cachedData, item.url, item.name, item.log, fullUrl, item.image, cached.time, true);
+            card.dataset.cached = String(cached.time);
+          } catch (e) { /* 缓存损坏则退回加载中样式 */ }
         }
+        if (!card) {
+          card = createLoadingModuleCard(fullUrl, item.name, item.image);
+        }
+        card.id = domId;
+        modulesContainer.appendChild(card);
 
-        // 保存数据到全局对象
-        results[fullUrl] = data;
-        modulesContainer.appendChild(createModuleCard(data, item.url, item.name, item.log, fullUrl, item.image, cacheTime));
+        // 2) 后台刷新：并发拉取最新数据，完成后原地替换这张卡片
+        tasks.push(async () => {
+          try {
+            const buffer = await fetchThroughProxy(fullUrl);
+            const text = decodeUtf8(buffer);
+            cacheWrite(fullUrl, text); // 成功即写入本地缓存
+            const data = JSON.parse(text);
+            results[fullUrl] = data;
+            const fresh = createModuleCard(data, item.url, item.name, item.log, fullUrl, item.image, 0, false);
+            fresh.id = domId;
+            replaceCard(domId, fresh);
+            return { ok: true };
+          } catch (err) {
+            const existing = document.getElementById(domId);
+            if (existing && existing.dataset.cached) {
+              // 已经有缓存内容，只是没刷新成功：保留缓存，把提示改回"失败"
+              updateCacheBadge(domId, Number(existing.dataset.cached));
+            } else {
+              const errCard = createErrorModuleCard(fullUrl, item.name, err.message, item.image);
+              errCard.id = domId;
+              replaceCard(domId, errCard);
+            }
+            return { ok: false };
+          }
+        });
       }
-      
+
       productCard.appendChild(modulesContainer);
       resultsContainer.appendChild(productCard);
+    }
+
+    const settled = await runWithConcurrency(tasks, MAX_CONCURRENCY);
+    const failed = settled.filter(r => !r || !r.ok).length;
+    if (failed === 0 && settled.length > 0) {
+      showToast("已更新为最新数据", 2500);
+    } else if (failed > 0) {
+      showToast(`${failed}/${settled.length} 个模块未取到实时数据，显示的是缓存`, 4000);
     }
   } finally {
     // 启用按钮
@@ -732,13 +788,51 @@ async function loadAllVersions() {
   }
 }
 
-function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime) {
+// 模块卡片的稳定 DOM id（用于后台刷新后原地替换）
+function moduleDomId(fullUrl) {
+  return "m-" + fullUrl.replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+function replaceCard(domId, newCard) {
+  const old = document.getElementById(domId);
+  if (old) old.replaceWith(newCard);
+}
+
+function updateCacheBadge(domId, cacheTime) {
+  const card = document.getElementById(domId);
+  if (!card) return;
+  const badge = card.querySelector(".cache-badge");
+  if (badge) {
+    badge.classList.remove("refreshing");
+    badge.textContent = `⚠ 实时获取失败，当前为 ${formatTime(cacheTime)} 的缓存数据`;
+  }
+}
+
+// 首屏占位卡片：还没有任何数据时显示
+function createLoadingModuleCard(url, name, image) {
+  const card = document.createElement("div");
+  card.className = "module-card";
+  card.innerHTML = `
+    <div class="module-header">
+      <img src="${image || PLACEHOLDER_IMAGE}" alt="${name}" class="module-image" onerror="this.src='${PLACEHOLDER_IMAGE}';">
+      <h3 class="module-title">${name}</h3>
+    </div>
+    <div class="loading">⟳ 正在获取最新数据…</div>
+    <div class="url-info"><span class="label">数据源:</span> <code>${url}</code></div>
+  `;
+  return card;
+}
+
+function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime, refreshing) {
   const moduleCard = document.createElement("div");
   moduleCard.className = "module-card";
-  // 代理全部失败时，用本地缓存渲染并给出明显提示
-  const cacheBadge = cacheTime
-    ? `<div class="cache-badge">⚠ 实时获取失败，当前为 ${formatTime(cacheTime)} 的缓存数据</div>`
-    : "";
+  // cacheTime > 0 表示展示的是缓存：refreshing 时说明后台正在更新，否则说明实时获取失败
+  let cacheBadge = "";
+  if (cacheTime && refreshing) {
+    cacheBadge = `<div class="cache-badge refreshing">⟳ 正在后台更新，当前为 ${formatTime(cacheTime)} 的缓存</div>`;
+  } else if (cacheTime) {
+    cacheBadge = `<div class="cache-badge">⚠ 实时获取失败，当前为 ${formatTime(cacheTime)} 的缓存数据</div>`;
+  }
 
   // 构建最新版本下载URL
   const latestDownloadUrl = data.latest ? buildDownloadUrl(baseUrl, data.latest) : null;
