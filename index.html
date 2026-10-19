@@ -223,6 +223,15 @@
       color: #95a5a6;
       font-size: 0.8em;
     }
+    .cache-badge {
+      margin: 0 0 10px;
+      padding: 6px 10px;
+      font-size: 0.85em;
+      color: #8a6d3b;
+      background-color: #fff8e1;
+      border: 1px solid #f0d9a0;
+      border-radius: 4px;
+    }
     .url-info {
       margin-top: 10px;
       font-size: 0.8em;
@@ -375,11 +384,19 @@ const urlMap = [
   { url: "http://dl.cii-tech.com/Update/HIA-100/", update: "update.json", name: "手持荧光", product: "手持荧光", log:"修改记录.txt", image: ""}
 ];
 
-// 公共 CORS 代理（按优先级依次尝试，前一个失败自动切换下一个）
-// 注意：Corsfix 要求请求必须带 Origin 头，因此页面需要通过 http(s) 访问，不能用 file:// 直接打开。
-// 如需长期使用或下载大体积固件包，建议自建代理（Cloudflare Workers / Nginx），
-// 只需在下面数组中再加一条 build 规则并放在第一位即可，其余代码无需改动。
+// CORS 代理池（按优先级依次尝试，前一个失败自动切换下一个）
+// 第 1 条是自建的 Cloudflare Worker（cii-proxy.649099309.workers.dev），优先使用；
+// 它不可用时才会依次降级到下面的公共代理。
+// 注意：多数公共代理要求请求带 Origin 头，因此页面需通过 http(s) 访问，不能用 file:// 直接打开。
 const PROXY_LIST = [
+  {
+    name: "自建CF-Worker",
+    build: raw => `https://cii-proxy.649099309.workers.dev/?url=${encodeURIComponent(raw)}`
+  },
+  {
+    name: "Codetabs",
+    build: raw => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(raw)}`
+  },
   {
     name: "Corsfix",
     build: raw => `https://proxy.corsfix.com/?${raw}`
@@ -389,10 +406,42 @@ const PROXY_LIST = [
     build: raw => `https://api.allorigins.win/raw?url=${encodeURIComponent(raw)}&_t=${Date.now()}`
   },
   {
-    name: "Codetabs",
-    build: raw => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(raw)}`
+    name: "corsproxy.io",
+    build: raw => `https://corsproxy.io/?url=${encodeURIComponent(raw)}`
+  },
+  {
+    name: "cors.workers.dev",
+    build: raw => `https://test.cors.workers.dev/?${raw}`
   }
 ];
+
+// 本地缓存兜底：所有代理都失败时，展示上一次成功取到的数据
+const CACHE_PREFIX = "fwcache:";
+const CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 缓存保留 60 天
+function cacheRead(key) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || Date.now() - obj.t > CACHE_TTL_MS) return null;
+    return { text: obj.v, time: obj.t };
+  } catch (e) {
+    return null;
+  }
+}
+function cacheWrite(key, text) {
+  try {
+    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), v: text }));
+  } catch (e) {
+    // localStorage 写满时忽略，不影响主流程
+  }
+}
+function formatTime(ts) {
+  try { return new Date(ts).toLocaleString("zh-CN"); } catch (e) { return ""; }
+}
+
+// 这类文件直接用直链下载：跨域点击链接属于浏览器导航行为，不受 CORS 限制，也无需代理
+const DIRECT_DOWNLOAD_EXT = /\.(bin|zip|rar|7z|apk|img|hex|tar|gz|bz2|exe|msi|pdf)$/i;
 const PROXY_TIMEOUT_MS = 15000;    // 读取 JSON / 日志等小文件
 const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，公共代理较慢，放宽超时
 const REQUEST_GAP_MS = 300;        // 请求间隔，避免并发触发公共代理限流
@@ -556,11 +605,11 @@ function saveBlob(buffer, filename) {
   URL.revokeObjectURL(link.href); // 释放内存
 }
 
-// 下载文件函数（url 为源站地址，实际通过代理获取）
+// 下载文件函数（url 为源站地址）
 async function downloadFile(url, filename) {
   const name = filename || url.substring(url.lastIndexOf('/') + 1);
 
-  // 如果是同源，可以直接用 a[download]
+  // 同源：直接 a[download]
   if (new URL(url).origin === window.location.origin) {
     const link = document.createElement('a');
     link.href = url;
@@ -568,6 +617,21 @@ async function downloadFile(url, filename) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    return;
+  }
+
+  // 固件包等二进制文件：直链打开，不走代理。
+  // 跨域导航不受 CORS 限制，也不会走公共代理（大文件不再失败/超时）。
+  if (DIRECT_DOWNLOAD_EXT.test(name)) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.download = name; // 跨域时被浏览器忽略，同源时生效，无副作用
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`已开始下载 ${name}（直链，不经代理）`, 3000);
     return;
   }
 
@@ -602,10 +666,15 @@ function showUpdateLog(basePath, logFile, moduleName) {
     .then(arrayBuffer => {
       // 使用 TextDecoder 指定编码为 'gbk'（兼容 GB2312）
       const decoder = new TextDecoder('gbk', { fatal: false });
-      logContent.textContent = decoder.decode(arrayBuffer);
+      const text = decoder.decode(arrayBuffer);
+      cacheWrite(logUrl, text); // 成功即缓存，供下次代理全挂时兜底
+      logContent.textContent = text;
     })
     .catch(error => {
-      logContent.textContent = `加载更新日志失败: ${error.message}\n\nURL: ${logUrl}`;
+      const hit = cacheRead(logUrl);
+      logContent.textContent = hit
+        ? `（实时获取失败，以下为 ${formatTime(hit.time)} 的缓存）\n\n${hit.text}`
+        : `加载更新日志失败: ${error.message}\n\nURL: ${logUrl}`;
     });
 }
 
@@ -646,17 +715,31 @@ async function loadAllVersions() {
       // 为每个选中的模块加载数据
       for (const item of items) {
         const fullUrl = item.url + item.update;
+        let data = null;
+        let cacheTime = 0; // >0 表示当前展示的是缓存数据
+
         try {
           const buffer = await fetchThroughProxy(fullUrl);
-          const data = JSON.parse(decodeUtf8(buffer));
-          
-          // 保存数据到全局对象
-          results[fullUrl] = data;
-          
-          modulesContainer.appendChild(createModuleCard(data, item.url, item.name, item.log, fullUrl, item.image));
+          const text = decodeUtf8(buffer);
+          cacheWrite(fullUrl, text); // 成功即写入本地缓存，供下次代理全挂时兜底
+          data = JSON.parse(text);
         } catch (err) {
-          modulesContainer.appendChild(createErrorModuleCard(fullUrl, item.name, err.message, item.image));
+          const hit = cacheRead(fullUrl);
+          if (hit) {
+            try {
+              data = JSON.parse(hit.text);
+              cacheTime = hit.time;
+            } catch (e) { /* 缓存内容损坏则按失败处理 */ }
+          }
+          if (!data) {
+            modulesContainer.appendChild(createErrorModuleCard(fullUrl, item.name, err.message, item.image));
+            continue;
+          }
         }
+
+        // 保存数据到全局对象
+        results[fullUrl] = data;
+        modulesContainer.appendChild(createModuleCard(data, item.url, item.name, item.log, fullUrl, item.image, cacheTime));
       }
       
       productCard.appendChild(modulesContainer);
@@ -669,9 +752,13 @@ async function loadAllVersions() {
   }
 }
 
-function createModuleCard(data, baseUrl, name, logFile, rawUrl, image) {
+function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime) {
   const moduleCard = document.createElement("div");
   moduleCard.className = "module-card";
+  // 代理全部失败时，用本地缓存渲染并给出明显提示
+  const cacheBadge = cacheTime
+    ? `<div class="cache-badge">⚠ 实时获取失败，当前为 ${formatTime(cacheTime)} 的缓存数据</div>`
+    : "";
 
   // 构建最新版本下载URL
   const latestDownloadUrl = data.latest ? buildDownloadUrl(baseUrl, data.latest) : null;
@@ -695,6 +782,7 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image) {
       <img src="${image || PLACEHOLDER_IMAGE}" alt="${name}" class="module-image" onerror="this.src='${PLACEHOLDER_IMAGE}';">
       <h3 class="module-title">${name}</h3>
     </div>
+    ${cacheBadge}
     <div class="info">
       <div class="info-item-version">
         <span class="label">软体版本:</span>
