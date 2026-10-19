@@ -1,36 +1,42 @@
-// Vercel Edge Function：专属 CORS 代理
+// Vercel Serverless Function（Node.js runtime，不是 Edge）
+// 必须用 Node runtime：Edge Runtime 的 fetch 不支持 http:// 明文源站，会报 "internal error"。
 // 访问地址：https://<你的项目>.vercel.app/api/proxy?url=http://dl.cii-tech.com/...
-export const config = { runtime: "edge" };
-
 const ALLOWED_PREFIX = "http://dl.cii-tech.com/"; // 只允许代理自家源站
 
-export default async function handler(req) {
+export default async function handler(req, res) {
+  // 统一带上 CORS 头（对成功、失败响应都生效）
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Expose-Headers", "Content-Type, Content-Length");
+  res.setHeader("Cache-Control", "no-store");
+
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders() });
+    res.status(204).end();
+    return;
   }
 
-  const target = new URL(req.url).searchParams.get("url");
-  if (!target || !target.startsWith(ALLOWED_PREFIX)) {
-    return new Response("Forbidden", { status: 403, headers: corsHeaders() });
+  const target =
+    (req.query && req.query.url) ||
+    new URL(req.url, "http://localhost").searchParams.get("url");
+
+  if (!target || typeof target !== "string" || !target.startsWith(ALLOWED_PREFIX)) {
+    res.status(403).send("Forbidden");
+    return;
   }
 
   try {
-    const upstream = await fetch(target, { redirect: "follow" });
-    const headers = new Headers(upstream.headers);
-    headers.set("Cache-Control", "no-store");
-    for (const [k, v] of Object.entries(corsHeaders())) headers.set(k, v);
-    return new Response(upstream.body, { status: upstream.status, headers });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 502,
-      headers: { ...corsHeaders(), "Content-Type": "application/json; charset=utf-8" },
+    const upstream = await fetch(target, {
+      redirect: "follow",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; FirmwareProxy/1.0)" },
     });
-  }
-}
 
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Expose-Headers": "Content-Type, Content-Length",
-  };
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader(
+      "Content-Type",
+      upstream.headers.get("content-type") || "application/octet-stream"
+    );
+    res.status(upstream.status).send(buffer);
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
 }
