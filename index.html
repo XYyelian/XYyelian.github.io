@@ -435,8 +435,11 @@ function formatTime(ts) {
   try { return new Date(ts).toLocaleString("zh-CN"); } catch (e) { return ""; }
 }
 
-const PROXY_TIMEOUT_MS = 8000;     // 读取 JSON / 日志等小文件
-const MAX_CONCURRENCY = 4;         // 同时发起的代理请求数
+// 这类文件直接用直链下载：跨域点击链接属于浏览器导航行为，不受 CORS 限制，也无需代理
+const DIRECT_DOWNLOAD_EXT = /\.(bin|zip|rar|7z|apk|img|hex|tar|gz|bz2|exe|msi|pdf)$/i;
+const PROXY_TIMEOUT_MS = 8000;     // 读取 JSON / 日志等小文件（原 15s，挂掉的代理等太久）
+const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，公共代理较慢，放宽超时
+const MAX_CONCURRENCY = 4;         // 同时发起的代理请求数（原来是串行，11 个模块要排队）
 
 // 并发执行任务，最多 limit 个同时进行（替代原来的串行队列）
 async function runWithConcurrency(tasks, limit) {
@@ -589,39 +592,59 @@ function showToast(message, duration = 0) {
     toastTimer = setTimeout(() => { toast.style.display = "none"; }, duration);
   }
 }
-// 下载文件函数（url 为源站地址）
-// 下载：复制原始地址到剪贴板，并提示用户在新标签里粘贴下载
-// https 页面直接点 http 直链会被浏览器按"混合内容下载"拦截，
-// 但用户自己在新标签地址栏输入/粘贴 http 地址属于正常导航，不会被拦，
-// 所以这里只负责把地址交给用户，由用户（或迅雷/IDM 等下载工具）完成下载。
-function downloadFile(url, filename) {
-  const name = filename || url.substring(url.lastIndexOf('/') + 1);
-  copyText(url);
-  alert(`已复制下载地址，打开新标签输入地址进行下载\n\n文件名：${name}\n地址：${url}`);
+// 触发浏览器保存文件
+function saveBlob(buffer, filename) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([buffer]));
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href); // 释放内存
 }
 
-// 复制文本到剪贴板：优先用 Clipboard API，不可用时降级到 execCommand
-function copyText(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+// 下载文件函数（url 为源站地址）
+async function downloadFile(url, filename) {
+  const name = filename || url.substring(url.lastIndexOf('/') + 1);
+
+  // 同源：直接 a[download]
+  if (new URL(url).origin === window.location.origin) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     return;
   }
-  fallbackCopy(text);
-}
 
-function fallbackCopy(text) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.top = '-9999px';
-  document.body.appendChild(ta);
-  ta.select();
-  try {
-    document.execCommand('copy');
-  } catch (e) {
-    // 复制失败时提示框里仍有完整地址，用户可以手动选中复制
+  // 固件包等二进制文件：直链打开，不走代理。
+  // 跨域导航不受 CORS 限制，也不会走公共代理（大文件不再失败/超时）。
+  if (DIRECT_DOWNLOAD_EXT.test(name)) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.download = name; // 跨域时被浏览器忽略，同源时生效，无副作用
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`已开始下载 ${name}（直链，不经代理）`, 3000);
+    return;
   }
-  document.body.removeChild(ta);
+
+  // 跨域情况：通过代理 fetch + Blob 方式
+  showToast(`正在通过代理下载 ${name} ...`);
+  try {
+    const buffer = await fetchThroughProxy(url, PROXY_DOWNLOAD_TIMEOUT_MS);
+    saveBlob(buffer, name);
+    showToast(`${name} 下载完成`, 3000);
+  } catch (err) {
+    clearTimeout(toastTimer);
+    document.getElementById("toast").style.display = "none";
+    alert(`下载失败：${err.message}\n\nURL: ${url}`);
+    console.error('Download error:', err);
+  }
 }
 
 // 显示更新日志对话框
@@ -838,12 +861,12 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime
       </div>
 	  <div class="info-item">
 		<span class="label">最新版:</span>
-        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="点击复制下载地址">下载</button>
+        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="点击下载最新版">下载</button>
       </div>
 	  <div class="info-item">
 		<span class="label">更新日志:</span>
         <button class="view-log-btn" onclick="showUpdateLog('${baseUrl}', '${logFile}', '${name}')"  title="点击查看更新日志">查看</button>
-		<button class="download-btn" style="margin-left:6px;" onclick="downloadFile('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="点击复制下载地址">下载</button>
+		<button class="download-btn" style="margin-left:6px;" onclick="downloadFile('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="下载更新日志">下载</button>
       </div>
     </div>
     ${historyList}
