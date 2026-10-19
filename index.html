@@ -367,7 +367,7 @@ const PLACEHOLDER_IMAGE = "data:image/svg+xml;charset=utf-8," + encodeURICompone
 );
 
 // URL 列表和对应的产品名称
-// 说明：url 为“源站目录”（dl.cii-tech.com），实际请求由 PROXY_LIST 中的代理转发，
+// 说明：url 为“源站目录”（dl.cii-tech.com），实际请求由  中的代理转发，
 //       源站是 http 且不支持 CORS，必须走 https 代理才能被浏览器读取。
 //       image 为相对路径（与 index.html 同级的 src 目录），留空则使用占位图。
 const urlMap = [
@@ -390,28 +390,8 @@ const urlMap = [
 // 注意：多数公共代理要求请求带 Origin 头，因此页面需通过 http(s) 访问，不能用 file:// 直接打开。
 const PROXY_LIST = [
   {
-    name: "自建CF-Worker",
+    name: "Cloudflare Worker",
     build: raw => `https://cii-proxy.649099309.workers.dev/?url=${encodeURIComponent(raw)}`
-  },
-  {
-    name: "Codetabs",
-    build: raw => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(raw)}`
-  },
-  {
-    name: "Corsfix",
-    build: raw => `https://proxy.corsfix.com/?${raw}`
-  },
-  {
-    name: "AllOrigins",
-    build: raw => `https://api.allorigins.win/raw?url=${encodeURIComponent(raw)}&_t=${Date.now()}`
-  },
-  {
-    name: "corsproxy.io",
-    build: raw => `https://corsproxy.io/?url=${encodeURIComponent(raw)}`
-  },
-  {
-    name: "cors.workers.dev",
-    build: raw => `https://test.cors.workers.dev/?${raw}`
   }
 ];
 
