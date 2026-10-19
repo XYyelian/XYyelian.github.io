@@ -395,7 +395,13 @@ const urlMap = [
 // 注意：多数公共代理要求请求带 Origin 头，因此页面需通过 http(s) 访问，不能用 file:// 直接打开。
 const PROXY_LIST = [
   {
-    name: "Vercel",
+    // 同源：Vercel 部署时，页面和 /api/proxy 在同一站点（无 CORS，速度最快）·
+    // GitHub Pages 上访问时这条会 404，自动降级到下一条
+    name: "Vercel（同源）",
+    build: raw => `/api/proxy?url=${encodeURIComponent(raw)}`
+  },
+  {
+    name: "Vercel（跨源）",
     build: raw => `https://xyyeliangithubio.vercel.app/api/proxy?url=${encodeURIComponent(raw)}`
   },
   {
@@ -429,11 +435,9 @@ function formatTime(ts) {
   try { return new Date(ts).toLocaleString("zh-CN"); } catch (e) { return ""; }
 }
 
-// 这类文件直接用直链下载：跨域点击链接属于浏览器导航行为，不受 CORS 限制，也无需代理
-const DIRECT_DOWNLOAD_EXT = /\.(bin|zip|rar|7z|apk|img|hex|tar|gz|bz2|exe|msi|pdf)$/i;
-const PROXY_TIMEOUT_MS = 8000;     // 读取 JSON / 日志等小文件（原 15s，挂掉的代理等太久）
-const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，公共代理较慢，放宽超时
-const MAX_CONCURRENCY = 4;         // 同时发起的代理请求数（原来是串行，11 个模块要排队）
+const PROXY_TIMEOUT_MS = 8000;     // 读取 JSON / 日志等小文件
+const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，走代理也走这个长超时
+const MAX_CONCURRENCY = 4;         // 同时发起的代理请求数
 
 // 并发执行任务，最多 limit 个同时进行（替代原来的串行队列）
 async function runWithConcurrency(tasks, limit) {
@@ -507,8 +511,6 @@ const modalTitle = document.getElementById("modalTitle");
 const logContent = document.getElementById("logContent");
 const closeBtn = document.querySelector(".close");
 
-const results = {}; // 用于存储所有获取到的数据
-
 // 从本地存储加载勾选状态
 let selectedModules = loadSelectedModules();
 
@@ -572,16 +574,9 @@ function loadSelectedModules() {
   return urlMap.map(item => item.url + item.update);
 }
 
-// 获取选中的模块
-function getSelectedModules() {
-  return selectedModules;
-}
-
-// 构建下载URL
+// 构建下载 URL（basePath 末尾已带 /，fileName 是文件名）
 function buildDownloadUrl(basePath, fileName) {
-  // 获取基础URL（去掉文件名部分）
-  const baseUrl = basePath;
-  return baseUrl + fileName;
+  return basePath + fileName;
 }
 
 // 简易提示（下载大文件时公共代理较慢，给用户反馈）
@@ -595,11 +590,6 @@ function showToast(message, duration = 0) {
     toastTimer = setTimeout(() => { toast.style.display = "none"; }, duration);
   }
 }
-function hideToast() {
-  clearTimeout(toastTimer);
-  document.getElementById("toast").style.display = "none";
-}
-
 // 触发浏览器保存文件
 function saveBlob(buffer, filename) {
   const link = document.createElement('a');
@@ -626,38 +616,22 @@ async function downloadFile(url, filename) {
     return;
   }
 
-  // 固件包等二进制文件：直链打开，不走代理。
-  // 跨域导航不受 CORS 限制，也不会走公共代理（大文件不再失败/超时）。
-  if (DIRECT_DOWNLOAD_EXT.test(name)) {
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.download = name; // 跨域时被浏览器忽略，同源时生效，无副作用
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast(`已开始下载 ${name}（直链，不经代理）`, 3000);
-    return;
-  }
-
-  // 跨域情况：通过代理 fetch + Blob 方式
+  // 跨域一律走代理：https 页面跳 http 直链会被浏览器按"混合内容下载"拦截，
+  // 即使点开了也只在地址栏给个提示，不会真下载。
+  // 大文件（固件包）放宽超时；小文件（json / 日志）维持 8s。
+  const isBig = /\.(bin|zip|rar|7z|apk|img|hex|tar|gz|bz2|exe|msi|pdf)$/i.test(name);
+  const timeoutMs = isBig ? PROXY_DOWNLOAD_TIMEOUT_MS : PROXY_TIMEOUT_MS;
   showToast(`正在通过代理下载 ${name} ...`);
   try {
-    const buffer = await fetchThroughProxy(url, PROXY_DOWNLOAD_TIMEOUT_MS);
+    const buffer = await fetchThroughProxy(url, timeoutMs);
     saveBlob(buffer, name);
     showToast(`${name} 下载完成`, 3000);
   } catch (err) {
-    hideToast();
+    clearTimeout(toastTimer);
+    document.getElementById("toast").style.display = "none";
     alert(`下载失败：${err.message}\n\nURL: ${url}`);
     console.error('Download error:', err);
   }
-}
-
-// 点击历史版本下载文件
-function downloadHistoryVersion(basePath, version) {
-  const downloadUrl = buildDownloadUrl(basePath, version);
-  downloadFile(downloadUrl, version);
 }
 
 // 显示更新日志对话框
@@ -690,7 +664,7 @@ async function loadAllVersions() {
   refreshBtn.textContent = "加载中...";
 
   const productData = {};
-  const selectedUrls = getSelectedModules();
+  const selectedUrls = selectedModules;
   
   // 先按产品分组
   for (const item of urlMap) {
@@ -730,10 +704,9 @@ async function loadAllVersions() {
         const cached = cacheRead(fullUrl);
         let card = null;
         if (cached) {
-          try {
-            const cachedData = JSON.parse(cached.text);
-            results[fullUrl] = cachedData;
-            card = createModuleCard(cachedData, item.url, item.name, item.log, fullUrl, item.image, cached.time, true);
+        try {
+          const cachedData = JSON.parse(cached.text);
+          card = createModuleCard(cachedData, item.url, item.name, item.log, fullUrl, item.image, cached.time, true);
             card.dataset.cached = String(cached.time);
           } catch (e) { /* 缓存损坏则退回加载中样式 */ }
         }
@@ -750,7 +723,6 @@ async function loadAllVersions() {
             const text = decodeUtf8(buffer);
             cacheWrite(fullUrl, text); // 成功即写入本地缓存
             const data = JSON.parse(text);
-            results[fullUrl] = data;
             const fresh = createModuleCard(data, item.url, item.name, item.log, fullUrl, item.image, 0, false);
             fresh.id = domId;
             replaceCard(domId, fresh);
@@ -843,7 +815,7 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime
     historyList = `<details><summary>历史版本 (${data.history.length})</summary><div class="history">`;
     data.history.forEach(version => {
       historyList += `
-        <div class="history-item" onclick="downloadHistoryVersion('${baseUrl}', '${version}')" title="点击下载 ${version}">
+        <div class="history-item" onclick="downloadFile('${baseUrl}${version}', '${version}')" title="点击下载 ${version}">
           ${version}
         </div>
       `;
