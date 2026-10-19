@@ -1,42 +1,942 @@
-// Vercel Serverless Function（Node.js runtime，不是 Edge）
-// 必须用 Node runtime：Edge Runtime 的 fetch 不支持 http:// 明文源站，会报 "internal error"。
-// 访问地址：https://<你的项目>.vercel.app/api/proxy?url=http://dl.cii-tech.com/...
-const ALLOWED_PREFIX = "http://dl.cii-tech.com/"; // 只允许代理自家源站
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 添加以下三行代码 -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>📊 固件版本信息</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background-color: #f5f7fa;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      color: #2c3e50;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .controls {
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .controls-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .controls-title {
+      font-weight: bold;
+      color: #2c3e50;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+    }
+    .checkbox-groups {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+	/* 选择框组样式 */
+    .checkbox-group {
+      flex: 1;
+      min-width: 100px;
+    }
+    .checkbox-group-title {
+      font-weight: bold;
+      color: #3498db;
+      margin-bottom: 8px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 5px;
+    }
+    .checkbox-item label {
+      font-size: 0.85em;
+      color: #555;
+      cursor: pointer;
+    }
+    .checkbox-item input[type="checkbox"] {
+      cursor: pointer;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9em;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+    button:disabled {
+      background-color: #95a5a6;
+      cursor: not-allowed;
+    }
+    .download-btn {
+      background-color: #2ecc71;
+      padding: 4px 12px;
+      font-size: 0.8em;
+    }
+    .download-btn:hover {
+      background-color: #27ae60;
+    }
+    .view-log-btn {
+      background-color: #f39c12;
+      padding: 4px 12px;
+      font-size: 0.8em;
+    }
+    .view-log-btn:hover {
+      background-color: #e67e22;
+    }
+    .refresh-btn {
+      background-color: #2ecc71;
+    }
+    .refresh-btn:hover {
+      background-color: #27ae60;
+    }
+    .product-card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      background-color: white;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .product-card h2 {
+      margin-top: 0;
+      color: #2c3e50;
+      font-size: 1.6em;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #3498db;
+      margin-bottom: 20px;
+    }
+    .module-card {
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 15px;
+      background-color: #f9f9f9;
+    }
+    .module-card:last-child {
+      margin-bottom: 0;
+    }
+    .module-title {
+      font-size: 1.2em;
+      color: #2980b9;
+      margin-top: 0;
+      margin-bottom: 10px;
+    }
+    .module-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .module-image {
+      width: 60px;
+      height: 60px;
+      margin-right: 10px;
+      object-fit: contain;
+    }
+    .info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    .info-item-version {
+      flex: 1;
+      min-width: 300px;
+    }
+	.info-item {
+      flex: 1;
+      min-width: 150px;
+    }
+    .label {
+      font-weight: bold;
+      color: #9facad;
+      font-size: 0.9em;
+      display: block;
+      margin-bottom: 5px;
+    }
+    .value {
+      color: #2c3e50;
+    }
+    .history {
+      margin-top: 12px;
+      font-size: 0.9em;
+      color: #555;
+    }
+    .history-item {
+      display: block;
+      padding: 6px 0;
+      border-bottom: 1px dotted #eee;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .history-item:hover {
+      background-color: #f0f8ff;
+      padding-left: 5px;
+      color: #3498db;
+    }
+    .history-item:last-child {
+      border-bottom: none;
+    }
+    .loading {
+      text-align: center;
+      color: #7f8c8d;
+      font-style: italic;
+      margin: 20px 0;
+    }
+    .error {
+      color: #e74c3c;
+      font-size: 0.9em;
+      margin-top: 6px;
+    }
+    .error-module {
+      background-color: #fee;
+      border-color: #e74c3c;
+    }
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      color: #95a5a6;
+      font-size: 0.8em;
+    }
+    .cache-badge.refreshing {
+      color: #1d6fa5;
+      background-color: #eaf4fb;
+      border-color: #b8dcf2;
+    }
+    .cache-badge {
+      margin: 0 0 10px;
+      padding: 6px 10px;
+      font-size: 0.85em;
+      color: #8a6d3b;
+      background-color: #fff8e1;
+      border: 1px solid #f0d9a0;
+      border-radius: 4px;
+    }
+    .url-info {
+      margin-top: 10px;
+      font-size: 0.8em;
+      color: #7f8c8d;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+    }
+    
+    /* 对话框样式 */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    
+    .modal-content {
+	  background-color: white;
+	  padding: 20px;
+	  border: none;
+	  border-radius: 8px;
+	  width: 50%;               /* 宽度为视口宽度的一半 */
+	  max-width: 800px;         /* 可选：防止在超宽屏上过大 */
+	  max-height: 80vh;
+	  overflow-y: auto;
+	  position: fixed;
+	  top: 50%;
+	  left: 50%;
+	  transform: translate(-50%, -50%); /* 精确居中 */
+	  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+	}
+    
+    .close {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+      line-height: 1;
+    }
+    
+    .close:hover {
+      color: #000;
+    }
+    
+	.log-content {
+	  white-space: pre;          /* 关键：禁止自动换行 */
+	  overflow-x: auto;          /* 横向滚动 */
+	  overflow-y: auto;          /* 纵向滚动已存在，保留 */
+	  font-family: monospace;
+	  background-color: #f5f5f5;
+	  padding: 15px;
+	  border-radius: 4px;
+	  border: 1px solid #ddd;
+	  max-height: 400px;
+	  /* 移除或注释掉下面这行（如果存在） */
+	  /* word-wrap: break-word; */
+	}
+    
+    .modal-title {
+      margin-top: 0;
+      color: #2c3e50;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
 
-export default async function handler(req, res) {
-  // 统一带上 CORS 头（对成功、失败响应都生效）
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-  res.setHeader("Access-Control-Expose-Headers", "Content-Type, Content-Length");
-  res.setHeader("Cache-Control", "no-store");
+    /* 下载提示气泡 */
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      background-color: rgba(44,62,80,0.92);
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 0.9em;
+      z-index: 2000;
+      display: none;
+    }
+  </style>
+</head>
+<body>
 
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
+<div class="container">
+  <h1>📊 固件版本信息中心</h1>
+  
+  <!-- 控制面板 -->
+  <div class="controls">
+    <div class="controls-header">
+      <div class="controls-title">选择要显示的固件模块：</div>
+      <div class="action-buttons">
+        <button id="selectAll">全选</button>
+        <button id="selectNone">全不选</button>
+        <button id="refreshBtn" class="refresh-btn">🔄 获取数据</button>
+      </div>
+    </div>
+    
+    <div class="checkbox-groups" id="moduleFilters">
+      <!-- 这里将通过JavaScript按产品分组动态生成复选框 -->
+    </div>
+  </div>
+  
+  <div id="results"></div>
+</div>
+
+<!-- 更新日志对话框 -->
+<div id="logModal" class="modal">
+  <div class="modal-content">
+    <span class="close">&times;</span>
+    <h3 class="modal-title" id="modalTitle">更新日志</h3>
+    <div class="log-content" id="logContent">加载中...</div>
+  </div>
+</div>
+
+<footer>
+  © 2025 - <span id="currentYear"></span> yozad.von | 个人所有 · 仅供展示
+</footer>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// 模块图片缺失时的内联占位图（data URI，不产生网络请求）
+// 若已把产品图放到 index.html 同级的 src/ 目录，把对应项的 image 填回路径即可，如 "src/ASPD-110.png"
+const PLACEHOLDER_IMAGE = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60">' +
+  '<rect width="60" height="60" rx="8" fill="#e8eef5"/>' +
+  '<text x="30" y="35" font-size="14" text-anchor="middle" fill="#95a5a6" font-family="sans-serif">无图</text>' +
+  '</svg>'
+);
+
+// URL 列表和对应的产品名称
+// 说明：url 为“源站目录”（dl.cii-tech.com），实际请求由 PROXY_LIST 中的代理转发，
+//       源站是 http 且不支持 CORS，必须走 https 代理才能被浏览器读取。
+//       image 为相对路径（与 index.html 同级的 src 目录），留空则使用占位图。
+const urlMap = [
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_mcu_v21.json", name: "冰箱版-主控板", product: "污水", log:"修改记录_ASPD_110_MCU_V21.txt", image: "src/SAFS-110.png" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs_b.json", name: "冰箱版-安卓板", product: "污水", log:"修改记录_SAFS-110B_android.txt", image: "src/SAFS-110.png" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update_safs.json", name: "冰箱版-监控APP", product: "污水", log:"修改记录_SAFS-110_android.txt", image: "src/SAFS-110.png" },
+  { url: "http://dl.cii-tech.com/Update/SAS-210/", update: "update.json", name: "单瓶板-主控板", product: "污水", log:"修改记录.txt", image: "src/SAS-210.png" },
+  { url: "http://dl.cii-tech.com/Update/ASPD-110/", update: "update.json", name: "污水APP", product: "污水", log:"修改记录_ASPD_110_MCU.txt", image: "src/ASPD-110.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update.json", name: "Craiv210Y-安卓板", product: "一体机", log:"修改记录_CRAIV-210Y_android.txt", image: "src/Craiv-210Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_mcu_v21.json", name: "Craiv210Y-主控板", product: "一体机", log:"修改记录_CRAIV_210Y_Main_V21.txt", image: "src/Craiv-210Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-210Y/", update: "update_signal.json", name: "Craiv210Y-信号板", product: "一体机", log:"修改记录_CRAIV_210Y_Signal.txt", image: "src/Craiv-210Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRAIV-110Y/", update: "update.json", name: "Craiv110Y-安卓板", product: "一体机", log:"修改记录_CRAIV-110Y_android.txt", image: "src/Craiv-110Y.png" },
+  { url: "http://dl.cii-tech.com/Update/CRA-110/", update: "update.json", name: "掌上扫毒", product: "掌上扫毒", log:"修改记录_CRA-110_android.txt", image: "src/CRA-110.png" },
+  { url: "http://dl.cii-tech.com/Update/HIA-100/", update: "update.json", name: "手持荧光", product: "手持荧光", log:"修改记录.txt", image: "src/HIA-100.png" }
+];
+
+// CORS 代理池（按优先级依次尝试，前一个失败自动切换下一个）
+// 第 1 条是自建的 Cloudflare Worker（cii-proxy.649099309.workers.dev），优先使用；
+// 它不可用时才会依次降级到下面的公共代理。
+// 注意：多数公共代理要求请求带 Origin 头，因此页面需通过 http(s) 访问，不能用 file:// 直接打开。
+const PROXY_LIST = [
+  {
+    // 同源：Vercel 部署时，页面和 /api/proxy 在同一站点（无 CORS，速度最快）·
+    // GitHub Pages 上访问时这条会 404，自动降级到下一条
+    name: "Vercel（同源）",
+    build: raw => `/api/proxy?url=${encodeURIComponent(raw)}`
+  },
+  {
+    name: "Vercel（跨源）",
+    build: raw => `https://xyyeliangithubio.vercel.app/api/proxy?url=${encodeURIComponent(raw)}`
+  },
+  {
+    name: "Cloudflare Worker",
+    build: raw => `https://cii-proxy.649099309.workers.dev/?url=${encodeURIComponent(raw)}`
   }
+];
 
-  const target =
-    (req.query && req.query.url) ||
-    new URL(req.url, "http://localhost").searchParams.get("url");
+// 本地缓存兜底：所有代理都失败时，展示上一次成功取到的数据
+const CACHE_PREFIX = "fwcache:";
+const CACHE_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 缓存保留 60 天
+function cacheRead(key) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (!obj || Date.now() - obj.t > CACHE_TTL_MS) return null;
+    return { text: obj.v, time: obj.t };
+  } catch (e) {
+    return null;
+  }
+}
+function cacheWrite(key, text) {
+  try {
+    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), v: text }));
+  } catch (e) {
+    // localStorage 写满时忽略，不影响主流程
+  }
+}
+function formatTime(ts) {
+  try { return new Date(ts).toLocaleString("zh-CN"); } catch (e) { return ""; }
+}
 
-  if (!target || typeof target !== "string" || !target.startsWith(ALLOWED_PREFIX)) {
-    res.status(403).send("Forbidden");
-    return;
+// 这类文件直接用直链下载：跨域点击链接属于浏览器导航行为，不受 CORS 限制，也无需代理
+const DIRECT_DOWNLOAD_EXT = /\.(bin|zip|rar|7z|apk|img|hex|tar|gz|bz2|exe|msi|pdf)$/i;
+const PROXY_TIMEOUT_MS = 8000;     // 读取 JSON / 日志等小文件（原 15s，挂掉的代理等太久）
+const PROXY_DOWNLOAD_TIMEOUT_MS = 120000; // 下载固件包，公共代理较慢，放宽超时
+const MAX_CONCURRENCY = 4;         // 同时发起的代理请求数（原来是串行，11 个模块要排队）
+
+// 并发执行任务，最多 limit 个同时进行（替代原来的串行队列）
+async function runWithConcurrency(tasks, limit) {
+  const output = new Array(tasks.length);
+  let index = 0;
+  async function worker() {
+    while (index < tasks.length) {
+      const i = index++;
+      try {
+        output[i] = await tasks[i]();
+      } catch (err) {
+        output[i] = { ok: false, err };
+      }
+    }
+  }
+  const size = Math.max(1, Math.min(limit, tasks.length));
+  await Promise.all(Array.from({ length: size }, worker));
+  return output;
+}
+
+// 通过代理获取源站资源（Race 模式）：
+// 同时向 PROXY_LIST 里所有代理发请求，谁先成功就用谁的结果，其余请求立即取消。
+// 整体最长 timeoutMs 仍未返回则算"全挂"，抛错让上层降级到本地缓存。
+async function fetchThroughProxy(rawUrl, timeoutMs = PROXY_TIMEOUT_MS) {
+  const ctl = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, timeoutMs);
+
+  // 单条代理请求：fetch 阶段挂 ctl.signal（用于超时/被取消时中断）；
+  // body 读取在 fetch resolve 之后进行，已不与 signal 关联，安全读完。
+  async function raceOne(proxy) {
+    const start = Date.now();
+    const response = await fetch(proxy.build(rawUrl), { cache: "no-store", signal: ctl.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    const buffer = await response.arrayBuffer();
+    if (!buffer || buffer.byteLength === 0) throw new Error("返回内容为空");
+    console.log(`[代理] ${proxy.name} 成功，用时 ${Date.now() - start}ms`);
+    return buffer;
   }
 
   try {
-    const upstream = await fetch(target, {
-      redirect: "follow",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; FirmwareProxy/1.0)" },
-    });
-
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    res.setHeader(
-      "Content-Type",
-      upstream.headers.get("content-type") || "application/octet-stream"
-    );
-    res.status(upstream.status).send(buffer);
+    // 外层包装：赢家一拿到结果就立即 abort 掉其他 in-flight 的请求，节省 socket
+    const racers = PROXY_LIST.map(p => (async () => {
+      const buf = await raceOne(p);
+      ctl.abort();
+      return buf;
+    })());
+    return await Promise.any(racers);
   } catch (err) {
-    res.status(502).json({ error: String(err) });
+    if (timedOut) {
+      throw new Error(`所有代理均超时（>${Math.round(timeoutMs / 1000)}s）`);
+    }
+    throw new Error("所有代理均失败");
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+// UTF-8 解码（兼容 BOM）
+function decodeUtf8(buffer) {
+  return new TextDecoder("utf-8").decode(buffer).replace(/^\uFEFF/, "").trim();
+}
+
+const resultsContainer = document.getElementById("results");
+const moduleFiltersContainer = document.getElementById("moduleFilters");
+const refreshBtn = document.getElementById("refreshBtn");
+const selectAllBtn = document.getElementById("selectAll");
+const selectNoneBtn = document.getElementById("selectNone");
+const logModal = document.getElementById("logModal");
+const modalTitle = document.getElementById("modalTitle");
+const logContent = document.getElementById("logContent");
+const closeBtn = document.querySelector(".close");
+
+// 从本地存储加载勾选状态
+let selectedModules = loadSelectedModules();
+
+// 生成模块筛选复选框（按产品分组）
+function renderModuleFilters() {
+  moduleFiltersContainer.innerHTML = '';
+  
+  // 按产品分组
+  const groupedModules = {};
+  urlMap.forEach(item => {
+    if (!groupedModules[item.product]) {
+      groupedModules[item.product] = [];
+    }
+    groupedModules[item.product].push(item);
+  });
+  
+  // 为每个产品创建一个复选框组
+  let moduleIndex = 0;
+  Object.entries(groupedModules).forEach(([productName, modules]) => {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'checkbox-group';
+    groupDiv.innerHTML = `<div class="checkbox-group-title">${productName}</div>`;
+    
+    modules.forEach(module => {
+      // id 必须唯一：同一 url 目录下有多个模块（如 ASPD-110 下有 4 个），
+      // 若只用 url 生成 id 会重复，导致 <label for> 全部指向第一个复选框。
+      const checkboxId = `module-${(module.url + module.update + module.name).replace(/[^a-zA-Z0-9]/g, '-')}-${moduleIndex++}`;
+      const checkbox = document.createElement('div');
+      checkbox.className = 'checkbox-item';
+      checkbox.innerHTML = `
+        <input type="checkbox" id="${checkboxId}" value="${module.url}${module.update}" ${selectedModules.includes(module.url + module.update) ? 'checked' : ''}>
+        <label for="${checkboxId}">${module.name}</label>
+      `;
+      groupDiv.appendChild(checkbox);
+    });
+    
+    moduleFiltersContainer.appendChild(groupDiv);
+  });
+  
+  // 添加事件监听
+  document.querySelectorAll('#moduleFilters input[type="checkbox"]').forEach(checkbox => {
+    checkbox.addEventListener('change', saveSelectedModules);
+  });
+}
+
+// 保存勾选状态到本地存储
+function saveSelectedModules() {
+  const checkboxes = document.querySelectorAll('#moduleFilters input[type="checkbox"]:checked');
+  selectedModules = Array.from(checkboxes).map(cb => cb.value);
+  localStorage.setItem('selectedModules', JSON.stringify(selectedModules));
+}
+
+// 从本地存储加载勾选状态
+function loadSelectedModules() {
+  const saved = localStorage.getItem('selectedModules');
+  if (saved) {
+    // 兼容历史版本：旧数据用的是已失效的 lithtml.com 前缀，迁移到源站地址
+    return JSON.parse(saved).map(v => String(v).replace('https://lithtml.com/', 'http://dl.cii-tech.com/'));
+  }
+  // 默认全选（所有URL）
+  return urlMap.map(item => item.url + item.update);
+}
+
+// 构建下载 URL（basePath 末尾已带 /，fileName 是文件名）
+function buildDownloadUrl(basePath, fileName) {
+  return basePath + fileName;
+}
+
+// 简易提示（下载大文件时公共代理较慢，给用户反馈）
+let toastTimer = null;
+function showToast(message, duration = 0) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.style.display = "block";
+  clearTimeout(toastTimer);
+  if (duration > 0) {
+    toastTimer = setTimeout(() => { toast.style.display = "none"; }, duration);
+  }
+}
+// 触发浏览器保存文件
+function saveBlob(buffer, filename) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([buffer]));
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href); // 释放内存
+}
+
+// 下载文件函数（url 为源站地址）
+async function downloadFile(url, filename) {
+  const name = filename || url.substring(url.lastIndexOf('/') + 1);
+
+  // 同源：直接 a[download]
+  if (new URL(url).origin === window.location.origin) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return;
+  }
+
+  // 固件包等二进制文件：直链打开，不走代理。
+  // 跨域导航不受 CORS 限制，也不会走公共代理（大文件不再失败/超时）。
+  if (DIRECT_DOWNLOAD_EXT.test(name)) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.download = name; // 跨域时被浏览器忽略，同源时生效，无副作用
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast(`已开始下载 ${name}（直链，不经代理）`, 3000);
+    return;
+  }
+
+  // 跨域情况：通过代理 fetch + Blob 方式
+  showToast(`正在通过代理下载 ${name} ...`);
+  try {
+    const buffer = await fetchThroughProxy(url, PROXY_DOWNLOAD_TIMEOUT_MS);
+    saveBlob(buffer, name);
+    showToast(`${name} 下载完成`, 3000);
+  } catch (err) {
+    clearTimeout(toastTimer);
+    document.getElementById("toast").style.display = "none";
+    alert(`下载失败：${err.message}\n\nURL: ${url}`);
+    console.error('Download error:', err);
+  }
+}
+
+// 显示更新日志对话框
+function showUpdateLog(basePath, logFile, moduleName) {
+  modalTitle.textContent = `更新日志 - ${moduleName}`;
+  logContent.textContent = "加载中...";
+  logModal.style.display = "block";
+
+  const logUrl = buildDownloadUrl(basePath, logFile);
+
+  fetchThroughProxy(logUrl)
+    .then(arrayBuffer => {
+      // 使用 TextDecoder 指定编码为 'gbk'（兼容 GB2312）
+      const decoder = new TextDecoder('gbk', { fatal: false });
+      const text = decoder.decode(arrayBuffer);
+      cacheWrite(logUrl, text); // 成功即缓存，供下次代理全挂时兜底
+      logContent.textContent = text;
+    })
+    .catch(error => {
+      const hit = cacheRead(logUrl);
+      logContent.textContent = hit
+        ? `（实时获取失败，以下为 ${formatTime(hit.time)} 的缓存）\n\n${hit.text}`
+        : `加载更新日志失败: ${error.message}\n\nURL: ${logUrl}`;
+    });
+}
+
+async function loadAllVersions() {
+  // 禁用按钮
+  refreshBtn.disabled = true;
+  refreshBtn.textContent = "加载中...";
+
+  const productData = {};
+  const selectedUrls = selectedModules;
+  
+  // 先按产品分组
+  for (const item of urlMap) {
+    const fullUrl = item.url + item.update;
+    if (!selectedUrls.includes(fullUrl)) {
+      continue; // 跳过未选中的模块
+    }
+    if (!productData[item.product]) {
+      productData[item.product] = [];
+    }
+    productData[item.product].push(item);
+  }
+
+  // 清空结果容器
+  resultsContainer.innerHTML = "";
+
+  // Stale-While-Revalidate：
+  // 先用本地缓存把卡片立刻渲染出来（首屏秒开），再并发去拉最新数据，拉到后原地替换。
+  const tasks = [];
+
+  try {
+    // 为每个有选中模块的产品创建卡片
+    for (const [productName, items] of Object.entries(productData)) {
+      if (items.length === 0) continue; // 跳过没有选中模块的产品
+
+      const productCard = document.createElement("div");
+      productCard.className = "product-card";
+      productCard.innerHTML = `<h2>${productName}</h2>`;
+
+      const modulesContainer = document.createElement("div");
+
+      for (const item of items) {
+        const fullUrl = item.url + item.update;
+        const domId = moduleDomId(fullUrl);
+
+        // 1) 首屏：有缓存就直接用缓存渲染，没有就显示"加载中"
+        const cached = cacheRead(fullUrl);
+        let card = null;
+        if (cached) {
+        try {
+          const cachedData = JSON.parse(cached.text);
+          card = createModuleCard(cachedData, item.url, item.name, item.log, fullUrl, item.image, cached.time, true);
+            card.dataset.cached = String(cached.time);
+          } catch (e) { /* 缓存损坏则退回加载中样式 */ }
+        }
+        if (!card) {
+          card = createLoadingModuleCard(fullUrl, item.name, item.image);
+        }
+        card.id = domId;
+        modulesContainer.appendChild(card);
+
+        // 2) 后台刷新：并发拉取最新数据，完成后原地替换这张卡片
+        tasks.push(async () => {
+          try {
+            const buffer = await fetchThroughProxy(fullUrl);
+            const text = decodeUtf8(buffer);
+            cacheWrite(fullUrl, text); // 成功即写入本地缓存
+            const data = JSON.parse(text);
+            const fresh = createModuleCard(data, item.url, item.name, item.log, fullUrl, item.image, 0, false);
+            fresh.id = domId;
+            replaceCard(domId, fresh);
+            return { ok: true };
+          } catch (err) {
+            const existing = document.getElementById(domId);
+            if (existing && existing.dataset.cached) {
+              // 已经有缓存内容，只是没刷新成功：保留缓存，把提示改回"失败"
+              updateCacheBadge(domId, Number(existing.dataset.cached));
+            } else {
+              const errCard = createErrorModuleCard(fullUrl, item.name, err.message, item.image);
+              errCard.id = domId;
+              replaceCard(domId, errCard);
+            }
+            return { ok: false };
+          }
+        });
+      }
+
+      productCard.appendChild(modulesContainer);
+      resultsContainer.appendChild(productCard);
+    }
+
+    const settled = await runWithConcurrency(tasks, MAX_CONCURRENCY);
+    const failed = settled.filter(r => !r || !r.ok).length;
+    if (failed === 0 && settled.length > 0) {
+      showToast("已更新为最新数据", 2500);
+    } else if (failed > 0) {
+      showToast(`${failed}/${settled.length} 个模块未取到实时数据，显示的是缓存`, 4000);
+    }
+  } finally {
+    // 启用按钮
+    refreshBtn.disabled = false;
+    refreshBtn.textContent = "🔄 获取数据";
+  }
+}
+
+// 模块卡片的稳定 DOM id（用于后台刷新后原地替换）
+function moduleDomId(fullUrl) {
+  return "m-" + fullUrl.replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+function replaceCard(domId, newCard) {
+  const old = document.getElementById(domId);
+  if (old) old.replaceWith(newCard);
+}
+
+function updateCacheBadge(domId, cacheTime) {
+  const card = document.getElementById(domId);
+  if (!card) return;
+  const badge = card.querySelector(".cache-badge");
+  if (badge) {
+    badge.classList.remove("refreshing");
+    badge.textContent = `⚠ 实时获取失败，当前为 ${formatTime(cacheTime)} 的缓存数据`;
+  }
+}
+
+// 首屏占位卡片：还没有任何数据时显示
+function createLoadingModuleCard(url, name, image) {
+  const card = document.createElement("div");
+  card.className = "module-card";
+  card.innerHTML = `
+    <div class="module-header">
+      <img src="${image || PLACEHOLDER_IMAGE}" alt="${name}" class="module-image" onerror="this.src='${PLACEHOLDER_IMAGE}';">
+      <h3 class="module-title">${name}</h3>
+    </div>
+    <div class="loading">⟳ 正在获取最新数据…</div>
+    <div class="url-info"><span class="label">数据源:</span> <code>${url}</code></div>
+  `;
+  return card;
+}
+
+function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime, refreshing) {
+  const moduleCard = document.createElement("div");
+  moduleCard.className = "module-card";
+  // cacheTime > 0 表示展示的是缓存：refreshing 时说明后台正在更新，否则说明实时获取失败
+  let cacheBadge = "";
+  if (cacheTime && refreshing) {
+    cacheBadge = `<div class="cache-badge refreshing">⟳ 正在后台更新，当前为 ${formatTime(cacheTime)} 的缓存</div>`;
+  } else if (cacheTime) {
+    cacheBadge = `<div class="cache-badge">⚠ 实时获取失败，当前为 ${formatTime(cacheTime)} 的缓存数据</div>`;
+  }
+
+  // 构建最新版本下载URL
+  const latestDownloadUrl = data.latest ? buildDownloadUrl(baseUrl, data.latest) : null;
+  
+  // 构建历史版本列表
+  let historyList = "";
+  if (data.history && Array.isArray(data.history) && data.history.length > 0) {
+    historyList = `<details><summary>历史版本 (${data.history.length})</summary><div class="history">`;
+    data.history.forEach(version => {
+      historyList += `
+        <div class="history-item" onclick="downloadFile('${baseUrl}${version}', '${version}')" title="点击下载 ${version}">
+          ${version}
+        </div>
+      `;
+    });
+    historyList += `</div></details>`;
+  }
+
+  moduleCard.innerHTML = `
+    <div class="module-header">
+      <img src="${image || PLACEHOLDER_IMAGE}" alt="${name}" class="module-image" onerror="this.src='${PLACEHOLDER_IMAGE}';">
+      <h3 class="module-title">${name}</h3>
+    </div>
+    ${cacheBadge}
+    <div class="info">
+      <div class="info-item-version">
+        <span class="label">软体版本:</span>
+        <span class="value">${data.softVersion || '-'}</span>
+      </div>
+      <div class="info-item">
+        <span class="label">发布者:</span>
+        <span class="value">${data.publisher || '-'}</span>
+      </div>
+      <div class="info-item">
+        <span class="label">发布日期:</span>
+        <span class="value">${data.releaseDate || '-'}</span>
+      </div>
+      <div class="info-item">
+        <span class="label">版本号:</span>
+        <span class="value">${data.releaseVersion || '-'}</span>
+      </div>
+	  <div class="info-item">
+		<span class="label">最新版:</span>
+        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="点击下载最新版">下载</button>
+      </div>
+	  <div class="info-item">
+		<span class="label">更新日志:</span>
+        <button class="view-log-btn" onclick="showUpdateLog('${baseUrl}', '${logFile}', '${name}')"  title="点击查看更新日志">查看</button>
+		<button class="download-btn" style="margin-left:6px;" onclick="downloadFile('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="下载更新日志">下载</button>
+      </div>
+    </div>
+    ${historyList}
+    <div class="url-info">
+      <span class="label">数据源:</span> <code>${rawUrl}</code>
+    </div>
+  `;
+  return moduleCard;
+}
+
+function createErrorModuleCard(url, name, errorMsg, image) {
+  const moduleCard = document.createElement("div");
+  moduleCard.className = "module-card error-module";
+  moduleCard.innerHTML = `
+    <div class="module-header">
+      <img src="${image || PLACEHOLDER_IMAGE}" alt="${name}" class="module-image" onerror="this.src='${PLACEHOLDER_IMAGE}';">
+      <h3 class="module-title" style="color:#e74c3c;">❌ ${name}</h3>
+    </div>
+    <div class="error"><strong>错误信息:</strong> ${errorMsg}</div>
+    <div class="url-info">
+      <span class="label">URL地址:</span> <code>${url}</code>
+    </div>
+  `;
+  return moduleCard;
+}
+
+// 事件监听
+refreshBtn.addEventListener('click', () => {
+  loadAllVersions().catch(console.error);
+});
+
+selectAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('#moduleFilters input[type="checkbox"]').forEach(checkbox => {
+    checkbox.checked = true;
+  });
+  saveSelectedModules();
+});
+
+selectNoneBtn.addEventListener('click', () => {
+  document.querySelectorAll('#moduleFilters input[type="checkbox"]').forEach(checkbox => {
+    checkbox.checked = false;
+  });
+  saveSelectedModules();
+});
+
+// 对话框事件监听
+closeBtn.addEventListener('click', () => {
+  logModal.style.display = "none";
+});
+
+window.addEventListener('click', (event) => {
+  if (event.target === logModal) {
+    logModal.style.display = "none";
+  }
+});
+
+// 页面加载完成后初始化
+window.onload = () => {
+  // 自动更新 footer 年份：2025 - 当前年
+  const yearSpan = document.getElementById("currentYear");
+  if (yearSpan) yearSpan.textContent = new Date().getFullYear();
+
+  // file:// 打开时浏览器不发 Origin 头，公共代理会拒绝请求
+  if (location.protocol === 'file:') {
+    showToast('请通过 http(s) 服务器访问本页（file:// 打开时代理会拒绝请求）', 8000);
+  }
+  renderModuleFilters();
+  loadAllVersions().catch(console.error);
+};
+</script>
+
+</body>
+</html>
