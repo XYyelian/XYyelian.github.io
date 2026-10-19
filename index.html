@@ -101,19 +101,6 @@
     .download-btn:hover {
       background-color: #27ae60;
     }
-    .direct-btn {
-      font-size: 0.8em;
-      padding: 4px 10px;
-      background-color: #95a5a6;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-left: 6px;
-    }
-    .direct-btn:hover {
-      background-color: #7f8c8d;
-    }
     .view-log-btn {
       background-color: #f39c12;
       padding: 4px 12px;
@@ -603,58 +590,38 @@ function showToast(message, duration = 0) {
   }
 }
 // 下载文件函数（url 为源站地址）
-// 跨域下载不走 JS fetch，而是把「代理 URL」交给浏览器原生下载器：
-//   1) 浏览器流式保存到磁盘，整个文件不进 JS 内存，不会因超时失败
-//   2) 有下载进度条、可暂停/续传
-//   3) 代理返回 Content-Disposition: attachment，浏览器按附件保存
-//   （https 页面直接点 http 直链会被 mixed-content 拦截，所以必须经 https 代理）
+// 下载：复制原始地址到剪贴板，并提示用户在新标签里粘贴下载
+// https 页面直接点 http 直链会被浏览器按"混合内容下载"拦截，
+// 但用户自己在新标签地址栏输入/粘贴 http 地址属于正常导航，不会被拦，
+// 所以这里只负责把地址交给用户，由用户（或迅雷/IDM 等下载工具）完成下载。
 function downloadFile(url, filename) {
   const name = filename || url.substring(url.lastIndexOf('/') + 1);
+  copyText(url);
+  alert(`已复制下载地址，打开新标签输入地址进行下载\n\n文件名：${name}\n地址：${url}`);
+}
 
-  // 同源：直接 a[download]
-  if (new URL(url).origin === window.location.origin) {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+// 复制文本到剪贴板：优先用 Clipboard API，不可用时降级到 execCommand
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
     return;
   }
-
-  const link = document.createElement('a');
-  link.href = pickDownloadProxy(url);
-  link.download = name; // 同源时生效；跨域时由代理的 Content-Disposition 决定文件名
-  link.rel = "noopener";
-  link.target = "_self"; // 不新开窗口：响应是 attachment，浏览器会在当前页发起下载
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  showToast(`已开始下载 ${name}（浏览器下载条可见进度）`, 4000);
+  fallbackCopy(text);
 }
 
-// 用「原始链接」在新窗口触发下载（不一定可用）
-// Chrome 91+ 会把它按"混合内容下载"拦截：地址栏弹"不安全下载已拦截"图标，
-// 必须手动点"保留"才会真正保存，且每次新会话都要重做一遍，不会被浏览器记住。
-// 所以这个按钮是「代理下载」的备选：能直连就用，被拦了就回来用代理下载。
-function downloadDirect(url, name) {
-  const link = document.createElement('a');
-  link.href = url;
-  link.target = "_blank";
-  link.rel = "noopener";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  showToast(`已发起直链下载 ${name}（如浏览器未响应，说明被 mixed-content 拦截）`, 4000);
-}
-
-// 为「原生下载」挑一个代理地址：Vercel 同源优先，其次 Vercel 绝对地址，最后 CF Worker
-function pickDownloadProxy(rawUrl) {
-  const built = PROXY_LIST.map(p => p.build(rawUrl));
-  const sameOrigin = built.find(u => u.startsWith("/"));
-  // /api/proxy 只在 Vercel 部署下存在；GitHub Pages 上没有，会 404
-  if (sameOrigin && !/\.github\.io$/i.test(location.hostname)) return sameOrigin;
-  return built.find(u => u.startsWith("https://")) || rawUrl;
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.top = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } catch (e) {
+    // 复制失败时提示框里仍有完整地址，用户可以手动选中复制
+  }
+  document.body.removeChild(ta);
 }
 
 // 显示更新日志对话框
@@ -871,14 +838,12 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime
       </div>
 	  <div class="info-item">
 		<span class="label">最新版:</span>
-        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="通过代理下载（推荐，稳定）">下载</button>
-        <button class="direct-btn" onclick="downloadDirect('${latestDownloadUrl}', '${data.latest}')" title="用原始链接在新窗口下载（可能被浏览器拦截）">直链</button>
+        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="点击复制下载地址">下载</button>
       </div>
 	  <div class="info-item">
 		<span class="label">更新日志:</span>
         <button class="view-log-btn" onclick="showUpdateLog('${baseUrl}', '${logFile}', '${name}')"  title="点击查看更新日志">查看</button>
-		<button class="download-btn" style="margin-left:6px;" onclick="downloadFile('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="下载更新日志">下载</button>
-        <button class="direct-btn" onclick="downloadDirect('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="用原始链接在新窗口下载（可能被浏览器拦截）">直链</button>
+		<button class="download-btn" style="margin-left:6px;" onclick="downloadFile('${buildDownloadUrl(baseUrl, logFile)}', '${logFile}')" title="点击复制下载地址">下载</button>
       </div>
     </div>
     ${historyList}
