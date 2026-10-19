@@ -647,6 +647,40 @@ async function downloadFile(url, filename) {
   }
 }
 
+// 复制下载地址并提示用户在新标签粘贴下载（最新版 / 历史版本固件包用）
+// https 页面直接点 http 直链会被浏览器按"混合内容下载"拦截；
+// 但用户自己在新标签地址栏输入 http 地址属于正常导航，不会被拦，
+// 粘到迅雷/IDM 等下载工具里也是直连源站。
+function copyDownloadUrl(url, filename) {
+  const name = filename || url.substring(url.lastIndexOf('/') + 1);
+  copyText(url);
+  alert(`已复制下载地址，打开新标签输入地址进行下载\n\n文件名：${name}\n地址：${url}`);
+}
+
+// 复制文本到剪贴板：优先 Clipboard API，不可用时降级到 execCommand
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+    return;
+  }
+  fallbackCopy(text);
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.top = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } catch (e) {
+    // 复制失败时提示框里仍有完整地址，用户可手动选中复制
+  }
+  document.body.removeChild(ta);
+}
+
 // 显示更新日志对话框
 function showUpdateLog(basePath, logFile, moduleName) {
   modalTitle.textContent = `更新日志 - ${moduleName}`;
@@ -828,7 +862,7 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime
     historyList = `<details><summary>历史版本 (${data.history.length})</summary><div class="history">`;
     data.history.forEach(version => {
       historyList += `
-        <div class="history-item" onclick="downloadFile('${baseUrl}${version}', '${version}')" title="点击下载 ${version}">
+        <div class="history-item" onclick="copyDownloadUrl('${baseUrl}${version}', '${version}')" title="点击复制下载地址：${version}">
           ${version}
         </div>
       `;
@@ -861,7 +895,7 @@ function createModuleCard(data, baseUrl, name, logFile, rawUrl, image, cacheTime
       </div>
 	  <div class="info-item">
 		<span class="label">最新版:</span>
-        <button class="download-btn" onclick="downloadFile('${latestDownloadUrl}', '${data.latest}')"  title="点击下载最新版">下载</button>
+        <button class="download-btn" onclick="copyDownloadUrl('${latestDownloadUrl}', '${data.latest}')"  title="点击复制下载地址">下载</button>
       </div>
 	  <div class="info-item">
 		<span class="label">更新日志:</span>
